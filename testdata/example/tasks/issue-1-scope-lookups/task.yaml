@@ -1,0 +1,21 @@
+id: issue-1-scope-lookups
+task_type: bug_fix
+area: items
+repo: api
+base_commit: 1111111111111111111111111111111111111111
+reference_commit: 2222222222222222222222222222222222222222
+
+description: |
+  Item lookups are not scoped to the caller's team
+
+  Fetching an item by id returns another team's item. It must return 404.
+
+hidden_tests:
+  - from: testdata/items_test.go
+    to: handlers/items_test.go
+
+load:
+  script: k6/load.js
+  vus: 10
+  duration: 10s
+  rounds: 3

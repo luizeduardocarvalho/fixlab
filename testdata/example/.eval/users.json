@@ -1,0 +1,4 @@
+[
+  { "claims": { "sub": "user_1", "email": "user1@example.test" }, "data": { "team_id": 1 } },
+  { "claims": { "sub": "user_2", "email": "user2@example.test" }, "data": { "team_id": 2 } }
+]

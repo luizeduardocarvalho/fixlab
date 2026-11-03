@@ -1,0 +1,49 @@
+# Example profile: a Go HTTP API backed by Postgres, whose clients sign in
+# through a hosted identity provider (stood in for by the jwt-issuer module).
+name: example-api
+
+toolchain:
+  env:
+    GOTOOLCHAIN: local
+
+app:
+  dockerfile: api.Dockerfile
+  port: 8080
+  health: /health
+  env:
+    PORT: "8080"
+    DATABASE_URL: "{{ .postgres.url }}"
+    CLERK_PUBLISHABLE_KEY: "{{ .clerk.publishable_key }}"
+    SSL_CERT_FILE: "{{ .clerk.ca_file }}"
+
+services:
+  postgres: { module: postgres, version: 16.4-alpine3.20 }
+  clerk: { module: jwt-issuer, preset: clerk, users: users.json }
+
+seed: { sql: seed.sql, into: postgres }
+
+load:
+  script: k6/load.js
+  vus: 10
+  duration: 10s
+  rounds: 3
+  env:
+    API_URL: "{{ .app.url }}"
+    TOKENS_FILE: "{{ .clerk.tokens_file }}"
+
+stages:
+  - { name: build, run: go build ./..., gate: true, timeout: 10m }
+  - { name: vet, run: go vet ./..., timeout: 10m }
+  - name: test
+    each: go list -f '{{if or .TestGoFiles .XTestGoFiles}}{{.ImportPath}}{{end}}' ./...
+    run: go test -json -count=1 -timeout=15m {item}
+    results: go-json
+
+tests:
+  infra_errors:
+    - "connect: connection refused"
+
+agent:
+  allow:
+    - Bash(go build:*)
+    - Bash(go test:*)

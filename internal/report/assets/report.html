@@ -1,0 +1,618 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agent Evals</title>
+<style>
+/* Layout: one column of cards; summary first, then task size, then one task in detail, then every attempt. */
+:root {
+  --bg: #f6f7f9; --panel: #ffffff; --fg: #1b2330; --muted: #5d6878; --line: #dfe3ea; --grid: #edf0f4;
+  --accent: #2f6fdb; --ok: #1e8a4c; --bad: #c8372d; --warn: #a86b00; --neutral: #9aa3b2;
+  --s1: #2f6fdb; --s2: #8a4fd3; --s3: #0f8f8a; --s4: #d0711b; --s5: #c2417a; --s6: #5b7a1f;
+  --font: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --radius: 10px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #11151b; --panel: #181e26; --fg: #e4e8ee; --muted: #98a3b3; --line: #2a323d; --grid: #222a34;
+    --accent: #6b9cf0; --ok: #4cc37f; --bad: #f0675c; --warn: #e0a640; --neutral: #6c7686;
+    --s1: #6b9cf0; --s2: #b386f0; --s3: #3cc3bd; --s4: #f09a4b; --s5: #ec74a6; --s6: #9cc15a;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #11151b; --panel: #181e26; --fg: #e4e8ee; --muted: #98a3b3; --line: #2a323d; --grid: #222a34;
+  --accent: #6b9cf0; --ok: #4cc37f; --bad: #f0675c; --warn: #e0a640; --neutral: #6c7686;
+  --s1: #6b9cf0; --s2: #b386f0; --s3: #3cc3bd; --s4: #f09a4b; --s5: #ec74a6; --s6: #9cc15a;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.5 var(--font); }
+.wrap { max-width: 1200px; margin: 0 auto; padding: 28px max(16px, env(safe-area-inset-right, 0px)) 48px max(16px, env(safe-area-inset-left, 0px)); display: grid; gap: 20px; }
+h1 { font-size: 26px; font-weight: 600; margin: 0; letter-spacing: -0.01em; text-wrap: balance; }
+h2 { font-size: 17px; font-weight: 600; margin: 0; text-wrap: balance; }
+h3 { font-size: 14px; font-weight: 600; margin: 0; }
+.sub { color: var(--muted); margin: 4px 0 0; max-width: 75ch; }
+.note { color: var(--muted); font-size: 12.5px; margin: 2px 0 12px; max-width: 80ch; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 18px; min-width: 0; }
+.stack { display: grid; gap: 20px; }
+.stack > *, .grid2 > .wide { grid-column: 1 / -1; }
+.grid2 > *, .wrap > * { min-width: 0; }
+.grid2 { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 30rem), 1fr)); }
+.tiles { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 12rem), 1fr)); }
+.tile { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 16px; }
+.tile .k { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; }
+.tile .v { font-size: 26px; font-weight: 600; font-variant-numeric: tabular-nums; margin-top: 2px; }
+.tile .s { color: var(--muted); font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.controls { display: flex; flex-wrap: wrap; gap: 12px 20px; align-items: end; margin: 12px 0 16px; }
+.controls label { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
+select { font: inherit; color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 5px 8px; min-width: 9rem; max-width: 100%; }
+select:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.verdict { border-left: 4px solid var(--neutral); padding: 10px 14px; background: var(--bg); border-radius: 0 8px 8px 0; margin-bottom: 16px; }
+.verdict.ok { border-left-color: var(--ok); } .verdict.bad { border-left-color: var(--bad); } .verdict.wait { border-left-color: var(--warn); }
+.verdict b { font-size: 15px; }
+.verdict p { margin: 4px 0 0; color: var(--muted); }
+.chart { position: relative; min-width: 0; }
+.chart svg { display: block; width: 100%; overflow: visible; }
+.chart text { fill: var(--muted); font-size: 11.5px; }
+.chart .label { fill: var(--fg); }
+.scroll { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 12.5px; font-variant-numeric: tabular-nums; }
+th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+th { color: var(--muted); font-weight: 600; font-size: 12px; position: sticky; top: 0; background: var(--panel); }
+td.num, th.num { text-align: right; }
+.tablebox { max-height: 34rem; overflow: auto; }
+.chip { display: inline-block; padding: 0 8px; border-radius: 999px; font-size: 11.5px; border: 1px solid currentColor; line-height: 18px; }
+.missed { font-size: 12px; white-space: normal; min-width: 18rem; }
+.missed .k { color: var(--muted); }
+.hard { display: grid; grid-template-columns: minmax(0, 1fr) 9rem 3.5rem; gap: 6px 12px; align-items: center; font-size: 12.5px; }
+.hard .bar { height: 8px; border-radius: 4px; background: var(--grid); overflow: hidden; }
+.hard .bar > span { display: block; height: 100%; background: var(--bad); opacity: .8; }
+.hard .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chip.ok { color: var(--ok); } .chip.bad { color: var(--bad); } .chip.wait { color: var(--warn); } .chip.none { color: var(--muted); }
+.mono { font-family: var(--mono); font-size: 12px; }
+.muted { color: var(--muted); }
+.empty { color: var(--muted); font-size: 13px; padding: 18px 0; }
+.tip { position: absolute; pointer-events: none; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 6px 20px rgba(0,0,0,.14); padding: 6px 10px; font-size: 12px; white-space: nowrap; z-index: 5; }
+.tip .t { color: var(--muted); }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12px; color: var(--muted); margin-top: 8px; }
+.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 5px; vertical-align: -1px; }
+.meter { display: inline-grid; grid-template-columns: 4.2rem 3.4rem; align-items: center; gap: 8px; }
+.meter .bar { height: 6px; border-radius: 3px; background: var(--grid); overflow: hidden; }
+.meter .bar > span { display: block; height: 100%; border-radius: 3px; background: var(--accent); }
+.meter .bar.ok > span { background: var(--ok); } .meter .bar.bad > span { background: var(--bad); } .meter .bar.mid > span { background: var(--warn); }
+.swatch { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 7px; vertical-align: -1px; }
+.warnings { color: var(--warn); font-size: 12.5px; }
+footer { color: var(--muted); font-size: 12px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Agent evals</h1>
+    <p class="sub" id="headline"></p>
+  </header>
+
+  <section class="tiles" id="tiles"></section>
+
+  <section class="card" id="strategies">
+    <h2>Strategies against the default</h2>
+    <p class="note" id="bench-note"></p>
+    <div id="comparisons"></div>
+    <h3 style="margin-top:18px">How the default changed</h3>
+    <div class="scroll"><table id="history-table"><thead><tr><th>Date</th><th>Default</th><th>Why</th><th>Evidence</th></tr></thead><tbody></tbody></table></div>
+  </section>
+
+  <section class="card" id="failures">
+    <h2>Attempts that didn't fully pass</h2>
+    <p class="note">Every agent attempt and reference fix on a task's current tests that isn't a full pass, newest first, with the hidden tests it missed by kind and where its files are in the history repo. Wrong-fix controls are left out: failing is their job. An infra error graded nothing, so it shows the error instead.</p>
+    <div class="controls"><label for="f-ftask">Task<select id="f-ftask"></select></label><label for="f-fkind">Show<select id="f-fkind"><option value="fail" selected>Failures only</option><option value="all">Failures and infra errors</option><option value="infra">Infra errors only</option></select></label></div>
+    <div class="tablebox"><table id="failure-table"><thead><tr><th>Started</th><th>Task</th><th>Variant</th><th>Result</th><th class="num">Hidden</th><th>Missed hidden tests</th><th>Files</th></tr></thead><tbody></tbody></table></div>
+  </section>
+
+  <section class="card" id="size">
+    <h2>How big a task can an agent take on alone?</h2>
+    <p class="note">Each task is sized by its reference fix: production lines changed, files and functions touched (tests not counted). A task's size class is the largest one any of those measures reaches. Pass rates use only attempts graded by the task's current hidden tests and leave out infrastructure errors.</p>
+    <div class="controls">
+      <label for="f-variant">Variant<select id="f-variant"></select></label>
+      <label for="f-model">Model<select id="f-model"></select></label>
+      <label for="f-success">Counts as a pass<select id="f-success"></select></label>
+      <label for="f-target">Pass rate needed<select id="f-target"><option value="0.67">67%</option><option value="0.8" selected>80%</option><option value="0.9">90%</option><option value="1">100%</option></select></label>
+      <label for="f-min">Tasks needed per size<select id="f-min"><option>1</option><option>2</option><option selected>3</option><option>5</option></select></label>
+    </div>
+    <div class="verdict" id="verdict"></div>
+    <div class="stack">
+      <div>
+        <h3>Pass rate by size class</h3>
+        <p class="note">The 95% range (Wilson) shows how much the rate could move with this few attempts.</p>
+        <div class="scroll"><table id="class-table"><thead><tr><th>Size</th><th>Definition</th><th class="num">Tasks</th><th class="num">Attempts</th><th class="num">Pass rate</th><th class="num">95% range</th><th class="num">Hidden tests passed</th><th>Agents alone?</th></tr></thead><tbody></tbody></table></div>
+      </div>
+      <div>
+        <h3>Pass rate by task size</h3>
+        <p class="note">One dot per task; bigger dots have more attempts. Dashed lines are the line-count limits of each class.</p>
+        <div class="chart" id="scatter"></div>
+      </div>
+    </div>
+    <h3 style="margin-top:18px">Tasks</h3>
+    <div class="scroll"><table id="task-table"><thead><tr><th>Task</th><th>Repo</th><th>Type</th><th>Area</th><th>Size</th><th class="num">Prod lines</th><th class="num">Files</th><th class="num">Functions</th><th class="num">Hunks</th><th class="num">Test lines</th><th class="num">Issue words</th><th class="num">Attempts</th><th class="num">Pass rate</th><th class="num">Hidden tests passed</th></tr></thead><tbody></tbody></table></div>
+  </section>
+
+  <section class="card" id="detail">
+    <h2 id="detail-title">One task in detail</h2>
+    <div class="controls"><label for="f-task">Task<select id="f-task"></select></label></div>
+    <p class="note" id="detail-note"></p>
+    <div class="grid2">
+      <div class="wide"><h3>Results by variant</h3><p class="note">A pass needs every hidden test. "Hidden tests passed" is partial credit across all attempts; the kind columns count attempts that passed every test of that kind. Current hidden tests only.</p><div class="scroll"><table id="variant-table"><thead></thead><tbody></tbody></table></div></div>
+      <div class="wide"><h3>Hardest hidden tests</h3><p class="note" id="hard-note">How often agent attempts on the current tests failed each hidden test; infra errors left out.</p><div class="hard" id="hard"></div></div>
+      <div><h3>Hidden tests per attempt</h3><p class="note">Rows are the task's hidden tests; columns are attempts, grouped by variant (coloured bar above each group).</p><div class="chart scroll" id="matrix"></div><div class="legend" id="matrix-legend"></div></div>
+      <div><h3>Agent usage per attempt</h3><p class="note">What the tokens would cost at API list price. On a subscription nothing is billed per run; this measures how much of the plan's usage a run takes. Hover a dot for tokens, time and turns.</p><div class="chart" id="cost"></div></div>
+      <div><h3>p95 latency change under load</h3><p class="note">Candidate vs baseline stack; the dashed line is the +25% gate.</p><div class="chart" id="perf"></div></div>
+      <div><h3>Size of the change</h3><p class="note">Lines added plus removed, tests included. Dashed: the reference fix.</p><div class="chart" id="diff"></div></div>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Every recorded attempt</h2>
+    <p class="note">Includes attempts graded by older versions of a task's hidden tests (marked "old tests"). A regrade replaces the attempt it regrades when both use the same tests.</p>
+    <div class="controls"><label for="f-atask">Task<select id="f-atask"></select></label></div>
+    <div class="tablebox"><table id="attempt-table"><thead><tr><th>Started</th><th>Task</th><th>Variant</th><th>Model</th><th>Tests</th><th>Result</th><th class="num">Hidden</th><th class="num">List price</th><th class="num">Tokens</th><th class="num">Agent time</th><th class="num">Diff lines</th><th class="num">Files outside ref</th><th class="num">p95 change</th><th>Run</th></tr></thead><tbody></tbody></table></div>
+  </section>
+
+  <footer id="footer"></footer>
+</div>
+<div class="tip" id="tip" hidden></div>
+
+<script id="report-data" type="application/json">__REPORT_DATA__</script>
+<script>
+(() => {
+  'use strict';
+  const D = JSON.parse(document.getElementById('report-data').textContent);
+  const $ = (id) => document.getElementById(id);
+  const NS = 'http://www.w3.org/2000/svg';
+  const classNames = D.classes.map((c) => c.name);
+  const taskById = Object.fromEntries(D.tasks.map((t) => [t.id, t]));
+
+  // ---------- helpers ----------
+  const el = (tag, attrs = {}, text) => {
+    const e = document.createElement(tag);
+    for (const [k, v] of Object.entries(attrs)) if (v != null) e.setAttribute(k, v);
+    if (text != null) e.textContent = text;
+    return e;
+  };
+  const sv = (tag, attrs = {}, text) => {
+    const e = document.createElementNS(NS, tag);
+    for (const [k, v] of Object.entries(attrs)) if (v != null) e.setAttribute(k, v);
+    if (text != null) e.textContent = text;
+    return e;
+  };
+  const pct = (v) => `${Math.round(v * 100)}%`;
+  const signed = (v) => `${v > 0 ? '+' : ''}${v.toFixed(1)}%`;
+  const money = (v) => `$${v.toFixed(2)}`;
+  const fmtDate = (s) => { const d = new Date(s); return isNaN(d) ? s : d.toLocaleString('en', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }); };
+  const uniq = (xs) => [...new Set(xs)];
+  const wilson = (k, n) => {
+    if (!n) return [0, 1];
+    const z = 1.96, p = k / n, d = 1 + z * z / n;
+    const c = (p + z * z / (2 * n)) / d, h = (z * Math.sqrt(p * (1 - p) / n + z * z / (4 * n * n))) / d;
+    return [Math.max(0, c - h), Math.min(1, c + h)];
+  };
+  const niceTicks = (lo, hi, n = 5) => {
+    const span = hi - lo || 1, step0 = span / n, mag = Math.pow(10, Math.floor(Math.log10(step0)));
+    const step = [1, 2, 2.5, 5, 10].map((m) => m * mag).find((s) => span / s <= n) || 10 * mag;
+    const out = []; for (let v = Math.ceil(lo / step) * step; v <= hi + 1e-9; v += step) out.push(+v.toFixed(10));
+    return out;
+  };
+  const textWidth = (() => {
+    const c = document.createElement('canvas').getContext('2d');
+    return (s) => { c.font = '11.5px ' + getComputedStyle(document.body).fontFamily; return c.measureText(s).width; };
+  })();
+  const tip = $('tip');
+  const showTip = (ev, head, lines) => {
+    tip.textContent = '';
+    tip.appendChild(el('div', { class: 't' }, head));
+    for (const l of lines) tip.appendChild(el('div', {}, l));
+    tip.hidden = false;
+    const pad = 12, w = tip.offsetWidth, h = tip.offsetHeight;
+    let x = ev.pageX + pad, y = ev.pageY + pad;
+    if (x + w > window.scrollX + document.documentElement.clientWidth - 8) x = ev.pageX - w - pad;
+    if (y + h > window.scrollY + document.documentElement.clientHeight - 8) y = ev.pageY - h - pad;
+    tip.style.left = `${Math.max(window.scrollX + 4, x)}px`; tip.style.top = `${y}px`;
+  };
+  const hideTip = () => { tip.hidden = true; };
+  const hover = (node, head, lines) => {
+    node.addEventListener('mousemove', (ev) => showTip(ev, head, lines));
+    node.addEventListener('mouseleave', hideTip);
+    node.style.cursor = 'default';
+  };
+  const option = (sel, value, label, selected) => { const o = el('option', { value }, label); if (selected) o.selected = true; sel.appendChild(o); };
+
+  // Variant colours: the reference fix is neutral, the rest follow first appearance.
+  const variantOrder = uniq(D.attempts.map((a) => a.variant)).sort((a, b) => (a === 'reference') - (b === 'reference') || (a === 'baseline' ? -1 : b === 'baseline' ? 1 : 0));
+  const color = (v) => v === 'reference' ? 'var(--neutral)' : `var(--s${(variantOrder.filter((x) => x !== 'reference').indexOf(v) % 6) + 1})`;
+  const graded = (a) => a.current && !a.infra;
+  const outcomesOf = (() => { const m = {}; for (const o of D.tests) (m[o.run_id] ||= {})[o.test] = o.outcome; return (id) => m[id] || null; })();
+  // passedKind: true/false when the attempt has per-test results and the task has that kind, else null.
+  const passedKind = (a, kind) => {
+    const k = (taskById[a.task_id]?.test_kinds || []).find((x) => x.kind === kind), o = outcomesOf(a.run_id);
+    return k && o ? k.tests.every((n) => o[n] === 'pass') : null;
+  };
+  const meter = (v, label, cls) => {
+    const m = el('span', { class: 'meter' }), b = el('span', { class: `bar ${cls || ''}` }), f = el('span');
+    f.style.width = `${Math.round(Math.max(0, Math.min(1, v)) * 100)}%`; b.appendChild(f); m.append(b, el('span', {}, label)); return m;
+  };
+  const tone = (v) => v >= 0.999 ? 'ok' : v <= 0.001 ? 'bad' : 'mid';
+  const share = (as) => { const g = as.filter(graded); const p = g.reduce((s, a) => s + a.hidden_passed, 0), t = g.reduce((s, a) => s + a.hidden_total, 0); return { p, t, v: t ? p / t : null }; };
+  const rate = (as) => { const g = as.filter(graded); return { n: g.length, k: g.filter((a) => a.pass).length }; };
+
+  // ---------- header ----------
+  const current = D.attempts.filter((a) => a.current);
+  // A regrade re-scores a recorded diff and copies its cost: it is not a new
+  // agent run. Count each original session once, whichever grading of it is kept.
+  const agentRuns = [...new Map(D.attempts.filter((a) => a.agent).map((a) => [a.regraded_from || a.run_id, a])).values()];
+  const agentAttempts = D.attempts.filter((a) => a.agent);
+  const spent = agentRuns.reduce((s, a) => s + (a.cost_usd || 0), 0);
+  const tokensOf = (a) => a.input_tokens == null ? null : a.input_tokens + a.output_tokens + a.cache_read_tokens + a.cache_write_tokens;
+  const compact = (n) => new Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 1 }).format(n);
+  const tokenLines = (a) => tokensOf(a) == null ? [] : [`${compact(tokensOf(a))} tokens: ${compact(a.output_tokens)} out, ${compact(a.cache_read_tokens)} cache read, ${compact(a.cache_write_tokens)} cache write, ${compact(a.input_tokens)} in`];
+  const runTokens = agentRuns.reduce((s, a) => s + (tokensOf(a) || 0), 0);
+  const tested = uniq(current.filter((a) => a.agent).map((a) => a.task_id));
+  $('headline').textContent = `${D.tasks.length} task${D.tasks.length === 1 ? '' : 's'} defined, ${tested.length} with agent attempts on the current tests. ${D.attempts.length} attempts recorded in total.`;
+  const tiles = [
+    ['Tasks with agent data', String(tested.length), `of ${D.tasks.length} defined`],
+    ['Agent runs', String(agentRuns.length), `${agentAttempts.filter(graded).length} graded by current tests (regrades included)`],
+    ['Agent pass rate', (() => { const r = rate(agentAttempts); return r.n ? pct(r.k / r.n) : '–'; })(), (() => { const r = rate(agentAttempts); return `${r.k} of ${r.n}, all variants`; })()],
+    ['Agent usage', `${compact(runTokens)} tokens`, `${money(spent)} at API list price (${agentRuns.length ? money(spent / agentRuns.length) : '–'} per run); not billed on a subscription`],
+  ];
+  for (const [k, v, s] of tiles) { const t = el('div', { class: 'tile' }); t.append(el('div', { class: 'k' }, k), el('div', { class: 'v' }, v), el('div', { class: 's' }, s)); $('tiles').appendChild(t); }
+
+  // ---------- size section ----------
+  const agentVariants = uniq(current.filter((a) => a.agent).map((a) => a.variant));
+  const fv = $('f-variant'), fm = $('f-model');
+  option(fv, '*', 'All agent variants', !agentVariants.includes('baseline'));
+  for (const v of agentVariants) option(fv, v, v, v === 'baseline');
+  option(fm, '*', 'All models', true);
+  for (const m of uniq(current.filter((a) => a.agent).map((a) => a.model)).filter(Boolean)) option(fm, m, m);
+
+  const fs = $('f-success');
+  option(fs, '*', 'Every hidden test', true);
+  const kindLabels = new Map(); for (const t of D.tasks) for (const k of t.test_kinds) if (k.kind !== 'other' && !kindLabels.has(k.kind)) kindLabels.set(k.kind, k.label);
+  for (const [k, l] of kindLabels) option(fs, k, `Every ${k} test (${l.toLowerCase()})`);
+
+  function sizeView() {
+    const succ = fs.value;
+    const passes = (a) => succ === '*' ? a.pass : passedKind(a, succ) === true;
+    const v = fv.value, m = fm.value, target = Number($('f-target').value), minTasks = Number($('f-min').value);
+    const pick = current.filter((a) => a.agent && !a.infra && (v === '*' || a.variant === v) && (m === '*' || a.model === m) && (succ === '*' || passedKind(a, succ) !== null));
+    const perTask = D.tasks.map((t) => {
+      const as = pick.filter((a) => a.task_id === t.id);
+      return { t, as, n: as.length, k: as.filter(passes).length };
+    });
+    const perClass = classNames.map((c, i) => {
+      const ts = perTask.filter((p) => p.t.size && p.t.size.class === c && p.n > 0);
+      const n = ts.reduce((s, p) => s + p.n, 0), k = ts.reduce((s, p) => s + p.k, 0);
+      const enough = ts.length >= minTasks;
+      const status = !ts.length ? 'none' : !enough ? 'wait' : k / n >= target ? 'ok' : 'bad';
+      return { c, i, info: D.classes[i], tasks: ts.length, n, k, status, share: share(ts.flatMap((p) => p.as)) };
+    });
+
+    // Threshold: the largest class such that it and every smaller class with data meet the bar.
+    let threshold = null, blocked = null;
+    for (const pc of perClass) {
+      if (pc.status === 'none') continue;
+      if (pc.status === 'ok') { threshold = pc; continue; }
+      blocked = pc; break;
+    }
+    const vd = $('verdict'); vd.textContent = ''; vd.className = 'verdict';
+    const withData = perClass.filter((p) => p.tasks > 0);
+    let head, body;
+    if (!withData.length) {
+      vd.classList.add('wait'); head = 'No agent attempts match these filters yet.';
+      body = 'Run an agent on a task (fixlab run -task … -agent claude -experiment baseline) to start.';
+    } else if (threshold) {
+      vd.classList.add('ok'); head = `Agents can work alone up to size ${threshold.c} (${threshold.info.description}).`;
+      body = blocked
+        ? `Size ${blocked.c} is ${blocked.status === 'bad' ? `below the bar at ${pct(blocked.k / blocked.n)}` : `not settled yet: ${blocked.tasks} of ${minTasks} tasks`}.`
+        : 'No larger class has failed the bar yet; add bigger tasks to find the limit.';
+    } else if (blocked && blocked.status === 'bad') {
+      vd.classList.add('bad'); head = `Not even size ${blocked.c} meets the bar: ${pct(blocked.k / blocked.n)} (${blocked.k} of ${blocked.n}) against ${pct(target)} needed.`;
+      body = 'Agents should not run alone on these tasks with this variant. Try another variant, or improve the prompt or CLAUDE.md first.';
+    } else {
+      vd.classList.add('wait'); head = 'Not enough tasks yet to set a threshold.';
+      body = `${succ === '*' ? '' : `Counting a pass as every ${succ} test passing. `}A size class needs ${minTasks} task${minTasks === 1 ? '' : 's'} with attempts; the most so far is ${Math.max(...withData.map((p) => p.tasks))}. One task's attempts are not independent evidence about other tasks of its size.`;
+    }
+    vd.append(el('b', {}, head), el('p', {}, body));
+
+    const tb = $('class-table').tBodies[0]; tb.textContent = '';
+    for (const pc of perClass) {
+      const tr = el('tr');
+      const [lo, hi] = wilson(pc.k, pc.n);
+      const chip = { ok: ['ok', 'Yes'], bad: ['bad', 'No'], wait: ['wait', `Needs ${minTasks - pc.tasks} more task${minTasks - pc.tasks === 1 ? '' : 's'}`], none: ['none', 'No data'] }[pc.status];
+      tr.append(el('td', {}, pc.c), el('td', { class: 'muted' }, pc.info.description), el('td', { class: 'num' }, String(pc.tasks)), el('td', { class: 'num' }, String(pc.n)),
+        el('td', { class: 'num' }, pc.n ? `${pct(pc.k / pc.n)} (${pc.k}/${pc.n})` : '–'), el('td', { class: 'num muted' }, pc.n ? `${pct(lo)}–${pct(hi)}` : '–'),
+        el('td', { class: 'num' }, pc.share.v != null ? `${pct(pc.share.v)} (${pc.share.p}/${pc.share.t})` : '–'));
+      const td = el('td'); td.appendChild(el('span', { class: `chip ${chip[0]}` }, chip[1])); tr.appendChild(td);
+      tb.appendChild(tr);
+    }
+
+    const ttb = $('task-table').tBodies[0]; ttb.textContent = '';
+    for (const p of perTask) {
+      const s = p.t.size || {};
+      const tr = el('tr');
+      tr.append(el('td', { class: 'mono', title: p.t.title }, p.t.id), el('td', {}, p.t.repo), el('td', {}, p.t.task_type), el('td', {}, p.t.area), el('td', {}, s.class || '–'));
+      for (const k of ['prod_lines', 'prod_files', 'functions', 'prod_hunks', 'test_lines', 'issue_words']) tr.appendChild(el('td', { class: 'num' }, s[k] != null ? String(s[k]) : '–'));
+      const sh = share(p.as);
+      tr.append(el('td', { class: 'num' }, String(p.n)), el('td', { class: 'num' }, p.n ? `${pct(p.k / p.n)} (${p.k}/${p.n})` : '–'),
+        el('td', { class: 'num' }, sh.v != null ? `${pct(sh.v)} (${sh.p}/${sh.t})` : '–'));
+      ttb.appendChild(tr);
+    }
+    scatter(perTask.filter((p) => p.n > 0 && p.t.size));
+  }
+
+  function scatter(points) {
+    const box = $('scatter'); box.textContent = '';
+    const W = Math.max(280, box.clientWidth), H = 240, m = { l: 44, r: 16, t: 14, b: 34 };
+    const limits = D.classes.map((c) => c.max_lines).filter((x) => x > 0);
+    const xmax = Math.max(1000, ...points.map((p) => p.t.size.prod_lines * 1.5));
+    const lx = (v) => m.l + (Math.log10(Math.max(1, v)) / Math.log10(xmax)) * (W - m.l - m.r);
+    const ly = (v) => m.t + 18 + (1 - v) * (H - m.t - m.b - 30);
+    const svg = sv('svg', { viewBox: `0 0 ${W} ${H}`, height: H, role: 'img', 'aria-label': 'Pass rate by task size' });
+    for (const v of [0, 0.25, 0.5, 0.75, 1]) {
+      svg.appendChild(sv('line', { x1: m.l, x2: W - m.r, y1: ly(v), y2: ly(v), stroke: 'var(--grid)' }));
+      svg.appendChild(sv('text', { x: m.l - 6, y: ly(v), 'text-anchor': 'end', 'dominant-baseline': 'middle' }, pct(v)));
+    }
+    let prev = m.l;
+    limits.forEach((v, i) => {
+      const x = lx(v);
+      svg.appendChild(sv('line', { x1: x, x2: x, y1: m.t, y2: H - m.b, stroke: 'var(--line)', 'stroke-dasharray': '4 3' }));
+      svg.appendChild(sv('text', { x: (prev + x) / 2, y: m.t + 2, 'text-anchor': 'middle', 'dominant-baseline': 'hanging' }, classNames[i]));
+      prev = x;
+    });
+    svg.appendChild(sv('text', { x: (prev + W - m.r) / 2, y: m.t + 2, 'text-anchor': 'middle', 'dominant-baseline': 'hanging' }, classNames[classNames.length - 1]));
+    for (const v of [1, 10, 100, 1000, 10000].filter((v) => v <= xmax)) {
+      svg.appendChild(sv('text', { x: lx(v), y: H - m.b + 16, 'text-anchor': 'middle' }, v.toLocaleString('en')));
+    }
+    svg.appendChild(sv('text', { x: (m.l + W - m.r) / 2, y: H - 2, 'text-anchor': 'middle' }, W < 480 ? 'Production lines changed (log scale)' : 'Production lines changed by the reference fix (log scale)'));
+    if (!points.length) svg.appendChild(sv('text', { x: (m.l + W - m.r) / 2, y: H / 2, 'text-anchor': 'middle', class: 'label' }, 'No tasks with matching attempts'));
+    for (const p of points) {
+      const r = 4 + Math.min(10, Math.sqrt(p.n) * 2.5);
+      const g = sv('g');
+      const cx = lx(p.t.size.prod_lines), cy = ly(p.k / p.n);
+      g.appendChild(sv('circle', { cx, cy, r, fill: 'var(--accent)', 'fill-opacity': 0.75, stroke: 'var(--panel)', 'stroke-width': 1.5 }));
+      const anchor = cx > W - 120 ? 'end' : 'start';
+      g.appendChild(sv('text', { x: cx + (anchor === 'end' ? -r - 4 : r + 4), y: cy, 'dominant-baseline': 'middle', 'text-anchor': anchor, class: 'label' }, p.t.id));
+      hover(g, p.t.id, [`${p.t.size.class}: ${p.t.size.prod_lines} lines, ${p.t.size.prod_files} files, ${p.t.size.functions} functions`, `${p.k} of ${p.n} attempts passed`]);
+      svg.appendChild(g);
+    }
+    box.appendChild(svg);
+  }
+
+  // ---------- task detail ----------
+  const ft = $('f-task');
+  const tasksWithData = D.tasks.filter((t) => current.some((a) => a.task_id === t.id));
+  for (const t of (tasksWithData.length ? tasksWithData : D.tasks)) option(ft, t.id, t.id);
+
+  function detailView() {
+    const t = taskById[ft.value];
+    if (!t) { $('detail-note').textContent = 'No tasks found.'; return; }
+    $('detail-title').textContent = t.title || t.id;
+    const s = t.size;
+    $('detail-note').textContent = `${t.id} · ${t.repo} · ${t.task_type} · ${t.area}` + (s ? ` · size ${s.class}: ${s.prod_lines} production lines, ${s.prod_files} file${s.prod_files === 1 ? '' : 's'}, ${s.functions} functions, ${t.hidden_tests.length} hidden tests` : '') + ` · tests version ${t.version}`;
+    const as = current.filter((a) => a.task_id === t.id);
+    const variants = variantOrder.filter((v) => as.some((a) => a.variant === v));
+    variantTable(t, as, variants);
+    matrix($('matrix'), t, as, variants);
+    hardestView(t);
+    dots($('cost'), as.filter((a) => a.cost_usd != null), variants.filter((v) => v !== 'reference'), { value: (a) => a.cost_usd, tick: money, lines: (a) => [`${money(a.cost_usd)} at list price`, ...tokenLines(a), `${Math.round(a.agent_sec || 0)} s, ${a.turns ?? '?'} turns`] });
+    dots($('perf'), as.filter((a) => a.p95_delta_pct != null), variants, { value: (a) => a.p95_delta_pct, ref: 25, zero: true, tick: (v) => `${v > 0 ? '+' : ''}${v}%`, lines: (a) => [`${a.p95_base_ms.toFixed(1)} → ${a.p95_cand_ms.toFixed(1)} ms (${signed(a.p95_delta_pct)})`, `5xx rate ${((a.error_rate || 0) * 100).toFixed(2)}%`] });
+    const refA = as.find((a) => a.variant === 'reference');
+    dots($('diff'), as.filter((a) => a.agent), variants.filter((v) => v !== 'reference'), { value: (a) => a.diff_lines, ref: refA ? refA.diff_lines : null, tick: (v) => v.toLocaleString('en'), lines: (a) => [`${a.diff_lines.toLocaleString('en')} lines in ${a.diff_files} files`, a.outside_ref != null ? `${a.outside_ref} files outside the reference fix` : ''] });
+  }
+
+  function variantTable(t, as, variants) {
+    const table = $('variant-table'), head = table.tHead, body = table.tBodies[0];
+    head.textContent = ''; body.textContent = '';
+    const kinds = t.test_kinds.filter((k) => k.kind !== 'other');
+    const hr = el('tr');
+    hr.append(el('th', {}, 'Variant'), el('th', {}, 'Full pass'), el('th', {}, 'Hidden tests passed'));
+    for (const k of kinds) hr.appendChild(el('th', { title: `${k.tests.length} test${k.tests.length === 1 ? '' : 's'}: ${k.tests.join(', ')}` }, k.label));
+    hr.appendChild(el('th', { class: 'num' }, 'Infra'));
+    head.appendChild(hr);
+    if (!variants.length) { const tr = el('tr'); tr.appendChild(el('td', { colspan: 4 + kinds.length, class: 'muted' }, 'No attempts on the current tests.')); body.appendChild(tr); return; }
+    for (const v of variants) {
+      const vs = as.filter((a) => a.variant === v), r = rate(vs), sh = share(vs), infra = vs.filter((a) => a.infra).length;
+      const tr = el('tr'), name = el('td'), sw = el('span', { class: 'swatch' });
+      sw.style.background = color(v); name.append(sw, document.createTextNode(v)); tr.appendChild(name);
+      const cell = (node) => { const td = el('td'); td.appendChild(node); tr.appendChild(td); };
+      cell(r.n ? meter(r.k / r.n, `${r.k}/${r.n}`, tone(r.k / r.n)) : el('span', { class: 'muted' }, '–'));
+      cell(sh.v != null ? meter(sh.v, pct(sh.v), tone(sh.v)) : el('span', { class: 'muted' }, '–'));
+      for (const k of kinds) {
+        const res = vs.filter(graded).map((a) => passedKind(a, k.kind)).filter((x) => x !== null);
+        const kp = res.filter(Boolean).length;
+        cell(res.length ? meter(kp / res.length, `${kp}/${res.length}`, tone(kp / res.length)) : el('span', { class: 'muted' }, '–'));
+      }
+      tr.appendChild(el('td', { class: 'num muted' }, String(infra)));
+      body.appendChild(tr);
+    }
+  }
+
+  function matrix(box, t, as, variants) {
+    box.textContent = '';
+    const runs = variants.flatMap((v) => as.filter((a) => a.variant === v)).filter((a) => D.tests.some((o) => o.run_id === a.run_id));
+    if (!runs.length || !t.hidden_tests.length) { $('matrix-legend').textContent = ''; box.appendChild(el('div', { class: 'empty' }, 'No per-test results recorded for this task.')); return; }
+    const legend = $('matrix-legend'); legend.textContent = '';
+    for (const v of variants) { const s = el('span'); const i = el('i'); i.style.background = color(v); s.append(i, document.createTextNode(v)); legend.appendChild(s); }
+    const label = (n) => n.replace(/^Test/, '').replace(/_/g, ' · ');
+    const cell = 20, gap = 4, top = 30, headH = 22;
+    // Rows: one per hidden test, grouped under a heading per kind when the task defines kinds.
+    const groups = t.test_kinds.length ? t.test_kinds : [{ kind: '', label: '', tests: t.hidden_tests }];
+    const rows = []; let y = top;
+    for (const g of groups) {
+      if (g.kind) { rows.push({ head: `${g.label} (${g.kind})`, y }); y += headH; }
+      for (const n of g.tests) { rows.push({ test: n, y }); y += cell + gap; }
+    }
+    const lw = Math.max(...t.hidden_tests.map((n) => textWidth(label(n)))) + 12;
+    const W = Math.max(lw + runs.length * (cell + gap) + 4, ...rows.filter((r) => r.head).map((r) => textWidth(r.head) + 8)), H = y;
+    const svg = sv('svg', { viewBox: `0 0 ${W} ${H}`, height: H, style: `min-width:${W}px`, role: 'img', 'aria-label': 'Hidden test outcomes' });
+    let col = 0;
+    for (const v of variants) {
+      const vr = runs.filter((a) => a.variant === v); if (!vr.length) continue;
+      const x0 = lw + col * (cell + gap), x1 = x0 + vr.length * (cell + gap) - gap;
+      const bar = sv('line', { x1: x0 + 2, x2: x1 - 2, y1: 14, y2: 14, stroke: color(v), 'stroke-width': 4, 'stroke-linecap': 'round' });
+      hover(bar, v, [`${vr.length} attempt${vr.length === 1 ? '' : 's'}`]);
+      svg.appendChild(bar);
+      col += vr.length;
+    }
+    for (const r of rows) {
+      if (r.head) { svg.appendChild(sv('text', { x: 0, y: r.y + headH / 2 + 2, 'dominant-baseline': 'middle', style: 'font-weight:600' }, r.head)); continue; }
+      svg.appendChild(sv('text', { x: lw - 8, y: r.y + cell / 2, 'text-anchor': 'end', 'dominant-baseline': 'middle', class: 'label' }, label(r.test)));
+    }
+    runs.forEach((a, j) => rows.filter((r) => r.test).forEach(({ test: n, y: ry }) => {
+      const o = (outcomesOf(a.run_id) || {})[n] || 'missing';
+      const r = sv('rect', { x: lw + j * (cell + gap), y: ry, width: cell, height: cell, rx: 4,
+        fill: o === 'pass' ? 'var(--ok)' : o === 'fail' ? 'var(--bad)' : 'var(--neutral)', 'fill-opacity': o === 'pass' ? 0.55 : 0.95 });
+      hover(r, `${a.variant} · ${a.run_id.slice(-6)}`, [`${n}: ${o}`]);
+      svg.appendChild(r);
+    }));
+    box.appendChild(svg);
+  }
+
+  function dots(box, as, variants, o) {
+    box.textContent = '';
+    if (!as.length) { box.appendChild(el('div', { class: 'empty' }, 'Nothing recorded.')); return; }
+    const rowH = 34, lw = Math.max(...variants.map(textWidth)) + 14, W = Math.max(280, box.clientWidth), H = variants.length * rowH + 26;
+    const vals = as.map(o.value).concat(o.ref != null ? [o.ref] : []).concat(o.zero ? [0] : []);
+    let lo = Math.min(0, ...vals), hi = Math.max(...vals); const pad = (hi - lo) * 0.08 || 1; hi += pad; if (lo < 0) lo -= pad;
+    const ticks = niceTicks(lo, hi, 4); lo = Math.min(lo, ticks[0]); hi = Math.max(hi, ticks[ticks.length - 1]);
+    const x = (v) => lw + ((v - lo) / (hi - lo)) * (W - lw - 18);
+    const svg = sv('svg', { viewBox: `0 0 ${W} ${H}`, height: H, role: 'img' });
+    for (const tv of ticks) {
+      svg.appendChild(sv('line', { x1: x(tv), x2: x(tv), y1: 0, y2: H - 22, stroke: tv === 0 && o.zero ? 'var(--line)' : 'var(--grid)' }));
+      svg.appendChild(sv('text', { x: x(tv), y: H - 6, 'text-anchor': 'middle' }, o.tick(tv)));
+    }
+    if (o.ref != null) svg.appendChild(sv('line', { x1: x(o.ref), x2: x(o.ref), y1: 0, y2: H - 22, stroke: 'var(--muted)', 'stroke-dasharray': '4 3' }));
+    variants.forEach((v, i) => {
+      const y = i * rowH + rowH / 2;
+      svg.appendChild(sv('text', { x: lw - 10, y, 'text-anchor': 'end', 'dominant-baseline': 'middle', class: 'label' }, v));
+      as.filter((a) => a.variant === v).forEach((a, j, arr) => {
+        const c = sv('circle', { cx: x(o.value(a)), cy: y + (j - (arr.length - 1) / 2) * Math.min(8, 22 / Math.max(1, arr.length - 1)), r: 5.5, fill: color(v), 'fill-opacity': 0.85, stroke: 'var(--panel)', 'stroke-width': 1.5 });
+        hover(c, `${v} · ${a.run_id.slice(-6)}`, o.lines(a).filter(Boolean));
+        svg.appendChild(c);
+      });
+    });
+    box.appendChild(svg);
+  }
+
+  // ---------- strategies ----------
+  function strategiesView() {
+    const b = D.benchmark, note = $('bench-note'), box = $('comparisons');
+    box.textContent = '';
+    if (!b) { note.textContent = 'No benchmark.yaml in the workspace.'; return; }
+    note.textContent = `Default: ${b.default}. A challenger replaces it only if, on every benchmark task (${b.tasks.join(', ')}), with at least ${b.min_runs} graded runs each, it passes no less often, passes the security tests in no fewer runs, and uses at most ${pct(b.max_token_increase)} more tokens per run unless it raises some task's pass rate. Earlier attempts count for a strategy when they ran exactly its configuration.`;
+    if (!D.comparisons.length) { box.appendChild(el('div', { class: 'empty' }, 'No other strategies to compare.')); }
+    for (const c of D.comparisons) {
+      const v = { adopt: ['ok', 'Adopt'], 'keep-default': ['bad', 'Keep the default'], 'not-enough-data': ['wait', 'Not enough data'] }[c.verdict];
+      const head = el('div', { style: 'display:flex;gap:10px;align-items:baseline;flex-wrap:wrap;margin:10px 0 6px' });
+      const chip = el('span', { class: `chip ${v[0]}` }, v[1]);
+      head.append(el('h3', {}, `${c.candidate} vs ${c.default}`), chip);
+      box.appendChild(head);
+      const wrap = el('div', { class: 'scroll' }); const table = el('table');
+      const hr = el('tr'); for (const h of ['Task', 'Pass', 'Hidden tests passed', 'Security', 'Tokens per run']) hr.appendChild(el('th', h === 'Task' ? {} : { class: 'num' }, h));
+      const thead = el('thead'); thead.appendChild(hr); table.appendChild(thead);
+      const tb = el('tbody');
+      const fmtStat = (x, y) => `${x} → ${y}`;
+      for (const t of c.tasks) {
+        const tr = el('tr'); const d = t.default, n = t.candidate;
+        tr.append(el('td', { class: 'mono' }, t.task_id),
+          el('td', { class: 'num' }, fmtStat(`${d.passes}/${d.runs}`, `${n.passes}/${n.runs}`)),
+          el('td', { class: 'num' }, fmtStat(d.runs ? pct(d.hidden_share) : '–', n.runs ? pct(n.hidden_share) : '–')),
+          el('td', { class: 'num' }, fmtStat(`${d.security_pass}/${d.security_runs}`, `${n.security_pass}/${n.security_runs}`)),
+          el('td', { class: 'num' }, fmtStat(d.tokens_avg ? compact(d.tokens_avg) : '–', n.tokens_avg ? compact(n.tokens_avg) : '–')));
+        tb.appendChild(tr);
+      }
+      table.appendChild(tb); wrap.appendChild(table); box.appendChild(wrap);
+      const ul = el('ul', { class: 'note' }); for (const r of c.reasons) ul.appendChild(el('li', {}, r)); box.appendChild(ul);
+    }
+    const ht = $('history-table').tBodies[0]; ht.textContent = '';
+    for (const h of (b.history || []).slice().reverse()) {
+      const tr = el('tr'); tr.append(el('td', {}, h.date), el('td', { class: 'mono' }, h.default), el('td', { style: 'white-space:normal;min-width:20rem' }, h.reason), el('td', { class: 'muted', style: 'white-space:normal' }, h.evidence));
+      ht.appendChild(tr);
+    }
+  }
+
+  // ---------- failures ----------
+  const ff = $('f-ftask'), fk = $('f-fkind');
+  option(ff, '*', 'All tasks', true);
+  for (const id of uniq(D.failures.map((f) => f.task_id))) option(ff, id, id);
+  function failuresView() {
+    const tb = $('failure-table').tBodies[0]; tb.textContent = '';
+    const rows = D.failures.filter((f) => (ff.value === '*' || f.task_id === ff.value) && (fk.value === 'all' || (fk.value === 'infra') === f.infra));
+    if (!rows.length) { const tr = el('tr'); tr.appendChild(el('td', { colspan: 7, class: 'muted' }, 'Every attempt here passed.')); tb.appendChild(tr); return; }
+    for (const f of rows) {
+      const tr = el('tr');
+      const res = f.infra ? ['wait', `Infra error at ${f.stage} (${f.infra_retries} retries)`] : ['bad', `Fail at ${f.stage}`];
+      const chip = el('td'); chip.appendChild(el('span', { class: `chip ${res[0]}` }, res[1]));
+      const missed = el('td', { class: 'missed' });
+      if (f.infra || !f.missed.length) {
+        missed.appendChild(el('span', { class: 'muted', title: f.error }, f.error.length > 110 ? f.error.slice(0, 110) + '…' : (f.error || '–')));
+      } else {
+        const byKind = new Map();
+        for (const m of f.missed) { const k = m.kind || 'other'; (byKind.get(k) || byKind.set(k, []).get(k)).push(m.test.replace(/^TestIssue\d+_/, '') + (m.outcome === 'fail' ? '' : ` (${m.outcome})`)); }
+        for (const [k, tests] of byKind) { const line = el('div'); line.append(el('span', { class: 'k' }, `${k}: `), document.createTextNode(tests.join(', '))); missed.appendChild(line); }
+      }
+      tr.append(el('td', {}, fmtDate(f.started_at)), el('td', { class: 'mono' }, f.task_id), el('td', {}, f.variant), chip,
+        el('td', { class: 'num' }, f.infra ? '–' : `${f.hidden_passed}/${f.hidden_total}`), missed, el('td', { class: 'mono muted', title: f.dir }, f.run_id.slice(-6)));
+      tb.appendChild(tr);
+    }
+  }
+  function hardestView(t) {
+    const box = $('hard'); box.textContent = '';
+    const h = D.hardest.find((x) => x.task_id === t.id);
+    if (!h) { box.appendChild(el('div', { class: 'muted' }, 'No agent attempts with per-test results yet.')); return; }
+    $('hard-note').textContent = `How often the ${h.attempts} agent attempts on the current tests failed each hidden test; infra errors left out.`;
+    for (const r of h.tests) {
+      const bar = el('div', { class: 'bar' }); const fill = el('span'); fill.style.width = `${Math.round(100 * r.failed / h.attempts)}%`; bar.appendChild(fill);
+      box.append(el('div', { class: 'name', title: r.test }, `${r.kind ? r.kind + ' · ' : ''}${r.test.replace(/^Test(Issue\d+_)?/, '')}`), bar, el('div', { class: 'num' }, `${r.failed}/${h.attempts}`));
+    }
+  }
+
+  // ---------- attempts table ----------
+  const fa = $('f-atask');
+  option(fa, '*', 'All tasks', true);
+  for (const id of uniq(D.attempts.map((a) => a.task_id))) option(fa, id, id);
+  function attemptsView() {
+    const tb = $('attempt-table').tBodies[0]; tb.textContent = '';
+    const rows = D.attempts.filter((a) => fa.value === '*' || a.task_id === fa.value).slice().sort((a, b) => b.started_at.localeCompare(a.started_at));
+    for (const a of rows) {
+      const tr = el('tr');
+      const res = a.pass ? ['ok', 'Pass'] : a.infra ? ['wait', `Infra error at ${a.failure_stage}`] : ['bad', `Fail at ${a.failure_stage}`];
+      const chip = el('td'); chip.appendChild(el('span', { class: `chip ${res[0]}` }, res[1]));
+      tr.append(el('td', {}, fmtDate(a.started_at)), el('td', { class: 'mono' }, a.task_id), el('td', {}, a.variant), el('td', {}, a.model || '–'),
+        el('td', { class: a.current ? '' : 'muted' }, a.current ? 'current' : `old tests (${a.task_version})`), chip,
+        el('td', { class: 'num' }, `${a.hidden_passed}/${a.hidden_total}`), el('td', { class: 'num' }, a.cost_usd != null ? money(a.cost_usd) : '–'),
+        el('td', { class: 'num', title: tokenLines(a).join('') }, tokensOf(a) != null ? compact(tokensOf(a)) : '–'),
+        el('td', { class: 'num' }, a.agent_sec != null ? `${Math.round(a.agent_sec)} s` : '–'), el('td', { class: 'num' }, a.diff_lines.toLocaleString('en')),
+        el('td', { class: 'num' }, a.outside_ref != null ? String(a.outside_ref) : '–'), el('td', { class: 'num' }, a.p95_delta_pct != null ? signed(a.p95_delta_pct) : '–'),
+        el('td', { class: 'mono muted', title: a.regraded_from ? `regrade of ${a.regraded_from}` : '' }, a.run_id.slice(-6) + (a.regraded_from ? ' ↺' : '')));
+      tb.appendChild(tr);
+    }
+  }
+
+  // ---------- footer ----------
+  const f = $('footer');
+  f.appendChild(el('div', {}, `Generated ${fmtDate(D.generated_at)} by fixlab ${D.harness_version} from the history repo. Regenerate with fixlab report.`));
+  if (D.warnings.length) { const w = el('div', { class: 'warnings' }); w.textContent = 'Warnings: ' + D.warnings.join(' · '); f.appendChild(w); }
+
+  const all = () => { strategiesView(); sizeView(); failuresView(); detailView(); attemptsView(); };
+  ff.addEventListener('change', failuresView);
+  fk.addEventListener('change', failuresView);
+  for (const id of ['f-variant', 'f-model', 'f-success', 'f-target', 'f-min']) $(id).addEventListener('change', sizeView);
+  ft.addEventListener('change', detailView);
+  fa.addEventListener('change', attemptsView);
+  let rt; window.addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(() => { sizeView(); detailView(); }, 150); });
+  all();
+})();
+</script>
+</body>
+</html>

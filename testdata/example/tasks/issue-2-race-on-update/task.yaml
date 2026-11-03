@@ -1,0 +1,13 @@
+id: issue-2-race-on-update
+task_type: bug_fix
+area: items
+repo: api
+base_commit: 3333333333333333333333333333333333333333
+reference_commit: 4444444444444444444444444444444444444444
+
+description: |
+  Concurrent updates to an item's quantity lose writes
+
+hidden_tests:
+  - from: testdata/quantity_test.go
+    to: handlers/quantity_test.go

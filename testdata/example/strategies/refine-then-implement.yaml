@@ -1,0 +1,6 @@
+name: refine-then-implement
+description: Issue plus the maintainer-approved refined spec.
+model: claude-opus-5-5
+prompt: prompts/refined-v1.md
+budget_usd: 10
+timeout: 45m

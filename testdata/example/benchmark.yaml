@@ -1,0 +1,16 @@
+default: refine-then-implement
+runs: 3
+
+tasks:
+  - tasks/issue-1-scope-lookups/task.yaml
+  - tasks/issue-2-race-on-update/task.yaml
+
+adopt_if:
+  min_runs: 3
+  max_token_increase: 0.10
+
+history:
+  - date: 2026-01-15
+    default: refine-then-implement
+    reason: The refined spec took both tasks from 0/3 to 3/3.
+    evidence: tasks/issue-1-scope-lookups/REPORT.md

@@ -1,0 +1,6 @@
+name: as-filed
+description: Issue text as filed; the repo's CLAUDE.md.
+model: claude-opus-5-5
+prompt: prompts/issue-v1.md
+budget_usd: 10
+timeout: 45m
