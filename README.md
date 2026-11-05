@@ -43,8 +43,12 @@ fixlab knows nothing about a project beyond two things the project provides:
   inside the project's repo, the repo is found from it (`-api-repo` otherwise).
 
 `testdata/example/` is a small, made-up workspace and profile showing every
-file's shape. The `eval-profile` skill (`skills/eval-profile/`) walks an agent
-through writing a profile for a new project.
+file's shape. Two skills for Claude Code walk an agent through the work:
+`eval-profile` (`skills/eval-profile/`) writes a profile for a new project, and
+`eval-task` (`skills/eval-task/`) takes an issue from report to merged fix:
+spec, hidden tests, reference search, promotion, controls, validation and PR.
+Install one by linking its directory into your skills dir, e.g.
+`ln -s "$PWD/skills/eval-task" ~/.claude/skills/eval-task`.
 
 ## Requirements
 
